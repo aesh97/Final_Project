@@ -21,7 +21,7 @@ impl graph_maker {
         return adjacency_matrix;
     }
 
-    fn build_graph_from_adjacency_matrix(&self, adjacency_matrix: Vec<Vec<f32>>)  -> DiGraph<i32, f32> {
+    pub fn build_graph_from_adjacency_matrix(&self, adjacency_matrix: Vec<Vec<f32>>)  -> DiGraph<i32, f32> {
         let mut graph: DiGraph<i32, f32> = DiGraph::new();
         let mut node_indices: Vec<NodeIndex> = Vec::new();
         for i in 0.. adjacency_matrix.len() {
