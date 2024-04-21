@@ -38,6 +38,12 @@ impl graph_maker {
         }
         return graph;
     }
+
+    pub fn build_graph_from_file_path(&self, file_path: &str) -> DiGraph<i32, f32> {
+        let adjacency_matrix = self.parse_adjacency_matrix_from_file_path(file_path);
+        let graph = self.build_graph_from_adjacency_matrix(adjacency_matrix);
+        return graph;
+    }
 }
 
 #[cfg(test)]
@@ -83,6 +89,27 @@ mod tests {
     expected_graph.add_edge(node_indices[1], node_indices[1], 1.5);
     expected_graph.add_edge(node_indices[2], node_indices[1], 0.8);
     let actual_graph = graph_maker().build_graph_from_adjacency_matrix(input_matrix);
+    let node_matcher = |_: &_, _: &_| true;
+    let edge_matcher = |edge1: &f32, edge2: &f32| *edge1 == *edge2;
+    assert!(is_isomorphic_matching(&expected_graph, &actual_graph, node_matcher, edge_matcher));
+    }
+
+    #[test]
+    fn build_graph_from_file_path_test() {
+        let input_matrix: Vec<Vec<f32>> = vec![
+        vec![0.2, 0.8, 0.9],
+        vec![0.9, 1.6, 0.0],
+        vec![0.0, 0.9, 0.0],
+    ];
+    let mut expected_graph: DiGraph<i32, f32> = DiGraph::new();
+    let node_indices: Vec<NodeIndex> = input_matrix.iter().map(|_| expected_graph.add_node(0)).collect();
+    expected_graph.add_edge(node_indices[0], node_indices[0], 0.2);
+    expected_graph.add_edge(node_indices[0], node_indices[1], 0.8);
+    expected_graph.add_edge(node_indices[0], node_indices[2], 0.9);
+    expected_graph.add_edge(node_indices[1], node_indices[0], 0.9);
+    expected_graph.add_edge(node_indices[1], node_indices[1], 1.6);
+    expected_graph.add_edge(node_indices[2], node_indices[1], 0.9);
+    let actual_graph = graph_maker().build_graph_from_file_path("data/matrix_3.txt");
     let node_matcher = |_: &_, _: &_| true;
     let edge_matcher = |edge1: &f32, edge2: &f32| *edge1 == *edge2;
     assert!(is_isomorphic_matching(&expected_graph, &actual_graph, node_matcher, edge_matcher));
