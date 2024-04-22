@@ -2,9 +2,10 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use petgraph::graph::{DiGraph, NodeIndex};
 
-struct graph_maker(); 
+pub struct graph_maker; 
+
 impl graph_maker {
-     fn parse_adjacency_matrix_from_file_path(&self, file_path: &str) -> Vec<Vec<f32>> {
+    fn parse_adjacency_matrix_from_file_path(&self, file_path: &str) -> Vec<Vec<f32>> {
         let mut adjacency_matrix:  Vec<Vec<f32>> = Vec::new();
         if let Ok(file) = File::open(file_path) {
             let reader = BufReader::new(file);
@@ -40,18 +41,22 @@ impl graph_maker {
     }
 
     pub fn build_graph_from_file_path(&self, file_path: &str) -> DiGraph<i32, f32> {
-        let adjacency_matrix = self.parse_adjacency_matrix_from_file_path(file_path);
-        let graph = self.build_graph_from_adjacency_matrix(adjacency_matrix);
-        return graph;
+            let adjacency_matrix = self.parse_adjacency_matrix_from_file_path(file_path);
+            let graph = self.build_graph_from_adjacency_matrix(adjacency_matrix);
+            return graph;
     }
+
 }
+
+     
+
 
 #[cfg(test)]
 mod tests {
-    use crate::graph_maker::graph_maker;
-    use crate::graph_maker::DiGraph;
+    use petgraph::graph::DiGraph;
     use petgraph::graph::NodeIndex;
     use petgraph::algo::is_isomorphic_matching;
+    use crate::run_manager::graph_maker::graph_maker;
     
     #[test]
     fn test_adjacency_matrix_from_file() {
@@ -67,8 +72,8 @@ mod tests {
         vec![0.1, 0.4, 0.3, 0.2, 10.5],
         vec![11.4, 0.1, 0.3, 11.1, 0.1],
     ];
-    let actual_matrix_1 = graph_maker().parse_adjacency_matrix_from_file_path("data/matrix_1.txt");
-    let actual_matrix_2 = graph_maker().parse_adjacency_matrix_from_file_path("data/matrix_2.txt");
+    let actual_matrix_1 = graph_maker.parse_adjacency_matrix_from_file_path("data/matrix_1.txt");
+    let actual_matrix_2 = graph_maker.parse_adjacency_matrix_from_file_path("data/matrix_2.txt");
     assert_eq!(actual_matrix_1, expected_matrix_1);
     assert_eq!(actual_matrix_2, expected_matrix_2);
     }
@@ -88,7 +93,7 @@ mod tests {
     expected_graph.add_edge(node_indices[1], node_indices[0], 0.8);
     expected_graph.add_edge(node_indices[1], node_indices[1], 1.5);
     expected_graph.add_edge(node_indices[2], node_indices[1], 0.8);
-    let actual_graph = graph_maker().build_graph_from_adjacency_matrix(input_matrix);
+    let actual_graph = graph_maker.build_graph_from_adjacency_matrix(input_matrix);
     let node_matcher = |_: &_, _: &_| true;
     let edge_matcher = |edge1: &f32, edge2: &f32| *edge1 == *edge2;
     assert!(is_isomorphic_matching(&expected_graph, &actual_graph, node_matcher, edge_matcher));
@@ -109,7 +114,7 @@ mod tests {
     expected_graph.add_edge(node_indices[1], node_indices[0], 0.9);
     expected_graph.add_edge(node_indices[1], node_indices[1], 1.6);
     expected_graph.add_edge(node_indices[2], node_indices[1], 0.9);
-    let actual_graph = graph_maker().build_graph_from_file_path("data/matrix_3.txt");
+    let actual_graph = graph_maker.build_graph_from_file_path("data/matrix_3.txt");
     let node_matcher = |_: &_, _: &_| true;
     let edge_matcher = |edge1: &f32, edge2: &f32| *edge1 == *edge2;
     assert!(is_isomorphic_matching(&expected_graph, &actual_graph, node_matcher, edge_matcher));
