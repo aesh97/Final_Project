@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use petgraph::graph::{DiGraph, NodeIndex};
+use petgraph::graph::{Graph, NodeIndex};
 use petgraph::Direction;
 use petgraph::visit::EdgeRef;
 use crate::run_manager::graph_maker::graph_maker;
@@ -19,7 +19,7 @@ impl partition {
         }
     }
 
-    pub fn reasign_node_to_optimal_community(&mut self, node: NodeIndex, graph: &DiGraph<i32, f32>) -> f32 {
+    pub fn reasign_node_to_optimal_community(&mut self, node: NodeIndex, graph: &Graph<i32, f32>) -> f32 {
         let mut change_in_modularity = 0.0;
         let mut optimal_community =  self.get_node_partition(node).unwrap();
         for neighbor in graph.neighbors_directed(node, petgraph::Direction::Outgoing).collect::<Vec<_>>() {
@@ -74,26 +74,16 @@ impl partition {
             .collect();
     }
 
-    fn compute_change_in_modularty(&self, node: NodeIndex, temp_community: i32, graph: &DiGraph<i32, f32>) -> f32 {
+    fn compute_change_in_modularty(&self, node: NodeIndex, temp_community: i32, graph: &Graph<i32, f32>) -> f32 {
         let mut m: f32 = 0.0;
         for edge in graph.edge_indices() {
             m += *graph.edge_weight(edge).unwrap();
         }
-        
-
-
-        println!("{}", m);
+        m /= 2.0;
         let mut potential_community_nodes = self.get_nodes_in_cluster(temp_community);
-        potential_community_nodes.push(node);
-
-        println!("{}", potential_community_nodes.len());
-        let term_1: f32 = community_detection.sum_of_weights_from_node_to_community(node, &potential_community_nodes, graph) as f32 / m as f32;
-        println!("{}", term_1);
+        let term_1: f32 = community_detection.sum_of_weights_from_node_to_community(node, &potential_community_nodes, graph);
         let term_2: f32 = community_detection.outward_degree_of_node(node, &graph) * community_detection.sum_of_in_going_edges_to_nodes_in_a_community(&potential_community_nodes, &graph);
-        println!("{}", term_2);
-        let term_3: f32 = community_detection.inward_degree_of_node(node, &graph) * community_detection.sum_of_out_going_edges_to_nodes_in_a_community(&potential_community_nodes, &graph);
-        println!("{}", term_3);
-        return term_1 - ((term_2+term_3) / (m*m));
+        return term_1  / m- (term_2 / (2.0*m*m));
     }
 }
 
@@ -117,7 +107,7 @@ impl fmt::Display for partition {
 pub struct community_detection;
 
 impl community_detection {
-    fn sum_of_weights_from_node_to_community(&self, node: NodeIndex, community: &Vec<NodeIndex>, graph: &DiGraph<i32, f32>) -> f32 {
+    fn sum_of_weights_from_node_to_community(&self, node: NodeIndex, community: &Vec<NodeIndex>, graph: &Graph<i32, f32>) -> f32 {
         let mut weight = 0.0;
         let mut outgoing_edges = graph.edges_directed(node, Direction::Outgoing);
         for edge in outgoing_edges {
@@ -128,35 +118,35 @@ impl community_detection {
         return weight;
     }
 
-    fn inward_degree_of_node(&self, node: NodeIndex, graph: &DiGraph<i32, f32>) -> f32 {
+    fn inward_degree_of_node(&self, node: NodeIndex, graph: &Graph<i32, f32>) -> f32 {
         return graph
         .edges_directed(node, Direction::Incoming)
         .map(|edge| *graph.edge_weight(edge.id()).unwrap_or(&0.0))
         .sum();
     }
 
-    fn outward_degree_of_node(&self, node: NodeIndex, graph: &DiGraph<i32, f32>) -> f32 {
+    fn outward_degree_of_node(&self, node: NodeIndex, graph: &Graph<i32, f32>) -> f32 {
         return graph
         .edges_directed(node, Direction::Outgoing)
         .map(|edge| *graph.edge_weight(edge.id()).unwrap_or(&0.0))
         .sum();
     }
 
-    fn sum_of_in_going_edges_to_nodes_in_a_community(&self, community: &Vec<NodeIndex>, graph: &DiGraph<i32, f32>) -> f32 {
+    fn sum_of_in_going_edges_to_nodes_in_a_community(&self, community: &Vec<NodeIndex>, graph: &Graph<i32, f32>) -> f32 {
         return community
             .iter()
             .map(|node| self.inward_degree_of_node(*node, &graph))
             .sum();
     }
 
-    fn sum_of_out_going_edges_to_nodes_in_a_community(&self, community: &Vec<NodeIndex>, graph: &DiGraph<i32, f32>) -> f32 {
+    fn sum_of_out_going_edges_to_nodes_in_a_community(&self, community: &Vec<NodeIndex>, graph: &Graph<i32, f32>) -> f32 {
         return community
             .iter()
             .map(|node| self.outward_degree_of_node(*node, &graph))
             .sum();
     }
 
-    fn phase_1(&self, G: &DiGraph<i32, f32>) -> (partition, f32) {
+    fn phase_1(&self, G: &Graph<i32, f32>) -> (partition, f32) {
         let mut node_indices: Vec<NodeIndex> = G.node_indices().collect();
         let mut partition = partition::new(node_indices.clone());
         partition.initialize_singleton();
@@ -170,7 +160,7 @@ impl community_detection {
         return (partition, total_increase);
     }
 
-    pub fn serial_louvain_algorithm(&self, G: &DiGraph<i32, f32>) -> (partition, f32) {
+    pub fn serial_louvain_algorithm(&self, G: &Graph<i32, f32>) -> (partition, f32) {
         let mut m = 0.0;
         let mut node_indices: Vec<NodeIndex> = G.node_indices().collect();
         let num_nodes = node_indices.len();
@@ -218,13 +208,13 @@ impl community_detection {
 #[cfg(test)]
 mod tests {
     use crate::run_manager::community_detection::partition;
-    use petgraph::graph::{DiGraph, NodeIndex};
+    use petgraph::graph::{Graph, NodeIndex};
     use crate::run_manager::community_detection::community_detection;
     use std::collections::HashMap;
 
     #[test]
     fn create_singleton_partition_of_graph_test() {
-        let mut graph: DiGraph<i32, f32> = DiGraph::new();
+        let mut graph: Graph<i32, f32> = Graph::new();
         let node_1 = graph.add_node(0);
         let node_2 = graph.add_node(0);
         let node_3 = graph.add_node(0);
@@ -243,7 +233,7 @@ mod tests {
 
     #[test]
     fn assign_node_to_cluster_then_reasign_from_singleton_test() {
-        let mut graph: DiGraph<i32, f32> = DiGraph::new();
+        let mut graph: Graph<i32, f32> = Graph::new();
         let node_1 = graph.add_node(0);
         let node_2 = graph.add_node(0);
         let edge_1 = graph.add_edge(node_1, node_2, 0.5);
@@ -265,7 +255,7 @@ mod tests {
 
     #[test]
     fn assign_node_to_cluster_then_reasign_from_default_test() {
-        let mut graph: DiGraph<i32, f32> = DiGraph::new();
+        let mut graph: Graph<i32, f32> = Graph::new();
         let node_1 = graph.add_node(0);
         let node_2 = graph.add_node(0);
         let edge_1 = graph.add_edge(node_1, node_2, 0.5);
@@ -284,7 +274,7 @@ mod tests {
 
     #[test]
     fn get_node_partition_test() {
-        let mut graph: DiGraph<i32, f32> = DiGraph::new();
+        let mut graph: Graph<i32, f32> = Graph::new();
         let node_1 = graph.add_node(0);
         let node_2 = graph.add_node(0);
         let edge_1 = graph.add_edge(node_1, node_2, 0.5);
@@ -297,7 +287,7 @@ mod tests {
 
     #[test]
     fn get_number_of_clusters_test() {
-        let mut graph: DiGraph<i32, f32> = DiGraph::new();
+        let mut graph: Graph<i32, f32> = Graph::new();
         let node_1 = graph.add_node(0);
         let node_2 = graph.add_node(0);
         let edge_1 = graph.add_edge(node_1, node_2, 0.5);
@@ -310,7 +300,7 @@ mod tests {
 
     #[test]
     fn get_nodes_in_cluster_test() {
-        let mut graph: DiGraph<i32, f32> = DiGraph::new();
+        let mut graph: Graph<i32, f32> = Graph::new();
         let node_1 = graph.add_node(0);
         let node_2 = graph.add_node(0);
         let node_3 = graph.add_node(0);
@@ -338,7 +328,7 @@ mod tests {
 
     #[test]
     fn sum_of_weights_from_node_to_community_test() {
-        let mut graph: DiGraph<i32, f32> = DiGraph::new();
+        let mut graph: Graph<i32, f32> = Graph::new();
         let node_A = graph.add_node(0);
         let node_B = graph.add_node(0);
         let node_C = graph.add_node(0);
@@ -363,7 +353,7 @@ mod tests {
 
     #[test]
     fn outward_inward_degree_of_node_test() {
-        let mut graph: DiGraph<i32, f32> = DiGraph::new();
+        let mut graph: Graph<i32, f32> = Graph::new();
         let node_A = graph.add_node(0);
         let node_B = graph.add_node(0);
         let node_C = graph.add_node(0);
@@ -393,7 +383,7 @@ mod tests {
 
     #[test]
     fn sum_of_in_out_going_edges_to_nodes_in_a_community_test() {
-        let mut graph: DiGraph<i32, f32> = DiGraph::new();
+        let mut graph: Graph<i32, f32> = Graph::new();
         let node_A = graph.add_node(0);
         let node_B = graph.add_node(0);
         let node_C = graph.add_node(0);
@@ -416,7 +406,7 @@ mod tests {
 
     #[test]
     fn change_in_modularity_test() {
-        let mut graph = DiGraph::<i32, f32>::new();
+        let mut graph = Graph::<i32, f32>::new();
         let node_1 = graph.add_node(0);
         let node_2 = graph.add_node(0);
         let node_3 = graph.add_node(0);
@@ -424,29 +414,22 @@ mod tests {
         let node_5 = graph.add_node(0);
         let nodes = vec![node_1, node_2, node_3, node_4, node_5];
         let mut edge_weights: HashMap<(usize, usize), f32> = HashMap::new();
-        
-
         graph.add_edge(node_1, node_2, 1.5);
+        graph.add_edge(node_2, node_1, 1.5);
         graph.add_edge(node_1, node_3, 1.3333333333333333);
+        graph.add_edge(node_3, node_1, 1.3333333333333333);
         graph.add_edge(node_1, node_4, 1.25);
-        graph.add_edge(node_2, node_1, 3.0);
+        graph.add_edge(node_4, node_1, 1.25);       
         graph.add_edge(node_2, node_3, 1.6666666666666665);
+        graph.add_edge(node_3, node_2, 1.6666666666666665);
         graph.add_edge(node_2, node_4, 1.5);
-        graph.add_edge(node_3, node_1, 4.0);
-        graph.add_edge(node_3, node_2, 2.5);
+        graph.add_edge(node_4, node_2, 1.5);  
         graph.add_edge(node_3, node_4, 1.75);
-        graph.add_edge(node_4, node_1, 5.0);
-        graph.add_edge(node_4, node_2, 3.0);
-        graph.add_edge(node_4, node_3, 2.333333333333333);
-        
-        
+        graph.add_edge(node_4, node_3, 1.75);  
         let mut partition: partition = partition::new(nodes.clone());
         partition.initialize_singleton();
-        
-
-        let actual_modularity_change_from_moving_node_4_to_cluster_1 = partition.compute_change_in_modularty(node_1, 1, &graph);
-        let expected_modularity_change = 0.03267733636272513;
-        assert_eq!(expected_modularity_change, actual_modularity_change_from_moving_node_4_to_cluster_1)
-
+        let actual_modularity_change_from_moving_node_2_to_cluster_0 = partition.compute_change_in_modularty(node_2, 0, &graph);
+        let expected_modularity_change = 0.04903979;
+        assert_eq!(expected_modularity_change, actual_modularity_change_from_moving_node_2_to_cluster_0)
     }
 }

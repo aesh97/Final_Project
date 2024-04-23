@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use petgraph::graph::{DiGraph, NodeIndex};
+use petgraph::graph::{Graph, NodeIndex};
 
 pub struct graph_maker; 
 
@@ -22,8 +22,8 @@ impl graph_maker {
         return adjacency_matrix;
     }
 
-    pub fn build_graph_from_adjacency_matrix(&self, adjacency_matrix: Vec<Vec<f32>>)  -> DiGraph<i32, f32> {
-        let mut graph: DiGraph<i32, f32> = DiGraph::new();
+    pub fn build_graph_from_adjacency_matrix(&self, adjacency_matrix: Vec<Vec<f32>>)  -> Graph<i32, f32> {
+        let mut graph: Graph<i32, f32> = Graph::new();
         let mut node_indices: Vec<NodeIndex> = Vec::new();
         for i in 0.. adjacency_matrix.len() {
             let node_index = graph.add_node(0); 
@@ -40,7 +40,7 @@ impl graph_maker {
         return graph;
     }
 
-    pub fn build_graph_from_file_path(&self, file_path: &str) -> DiGraph<i32, f32> {
+    pub fn build_graph_from_file_path(&self, file_path: &str) -> Graph<i32, f32> {
             let adjacency_matrix = self.parse_adjacency_matrix_from_file_path(file_path);
             let graph = self.build_graph_from_adjacency_matrix(adjacency_matrix);
             return graph;
@@ -53,7 +53,7 @@ impl graph_maker {
 
 #[cfg(test)]
 mod tests {
-    use petgraph::graph::DiGraph;
+    use petgraph::graph::Graph;
     use petgraph::graph::NodeIndex;
     use petgraph::algo::is_isomorphic_matching;
     use crate::run_manager::graph_maker::graph_maker;
@@ -85,7 +85,7 @@ mod tests {
         vec![0.8, 1.5, 0.0],
         vec![0.0, 0.8, 0.0],
     ];
-    let mut expected_graph: DiGraph<i32, f32> = DiGraph::new();
+    let mut expected_graph: Graph<i32, f32> = Graph::new();
     let node_indices: Vec<NodeIndex> = input_matrix.iter().map(|_| expected_graph.add_node(0)).collect();
     expected_graph.add_edge(node_indices[0], node_indices[0], 0.1);
     expected_graph.add_edge(node_indices[0], node_indices[1], 0.7);
@@ -106,7 +106,7 @@ mod tests {
         vec![0.9, 1.6, 0.0],
         vec![0.0, 0.9, 0.0],
     ];
-    let mut expected_graph: DiGraph<i32, f32> = DiGraph::new();
+    let mut expected_graph: Graph<i32, f32> = Graph::new();
     let node_indices: Vec<NodeIndex> = input_matrix.iter().map(|_| expected_graph.add_node(0)).collect();
     expected_graph.add_edge(node_indices[0], node_indices[0], 0.2);
     expected_graph.add_edge(node_indices[0], node_indices[1], 0.8);
