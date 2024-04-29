@@ -4,6 +4,8 @@ use petgraph::Direction;
 use petgraph::visit::EdgeRef;
 use crate::run_manager::graph_maker::graph_maker;
 use std::fmt;
+use std::ops::Index;
+use std::collections::HashSet;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct partition {
@@ -17,6 +19,15 @@ impl partition {
             node_indexes,
             current_partition: HashMap::new(),
         }
+    }
+
+
+    pub fn make_node_singleton(&mut self, node: NodeIndex) {
+        let maximum_community_number = self.current_partition
+                                                .values()
+                                                .max()
+                                                .unwrap();
+        self.current_partition.insert(node, maximum_community_number+1);
     }
 
     pub fn reasign_node_to_optimal_community(&mut self, node: NodeIndex, graph: &Graph<i32, f32>) -> f32 {
@@ -33,6 +44,44 @@ impl partition {
         self.assign_node_to_cluster(node, optimal_community);
         return change_in_modularity;
     }
+
+    fn remove_duplicates<T: Eq + std::hash::Hash + Clone>(vec: Vec<T>) -> Vec<T> {
+        let set: HashSet<_> = vec.into_iter().collect();
+        set.into_iter().collect()
+    }
+
+    fn adjust_cluster_numbers(&mut self) {
+        let mut cluster_numbers_sorted: Vec<i32> = Self::remove_duplicates(self.current_partition.values().cloned().collect());
+        cluster_numbers_sorted.sort();
+        
+        for node in self.node_indexes.clone() {
+            self.assign_node_to_cluster(node, cluster_numbers_sorted.iter().position(|&x| x == *self.current_partition.get(&node).unwrap()).unwrap() as i32);
+        }
+    }
+
+    pub fn phase_2(&mut self, G: Graph<i32, f32>) -> Graph<i32, f32> {
+        self.adjust_cluster_numbers();
+        let number_of_clusters = self.get_number_of_clusters();
+        let mut adjacency_matrix: Vec<Vec<f32>> = vec![vec![0.0; number_of_clusters.try_into().unwrap()]; number_of_clusters.try_into().unwrap()];
+        for &node in &self.node_indexes {
+            for edge in G.edges_directed(node, Direction::Outgoing) {
+                let source = edge.source();
+                let target = edge.target();
+                let source_cluster = self.get_node_partition(source).unwrap();
+                let target_cluster = self.get_node_partition(target).unwrap();
+                if source_cluster != target_cluster {
+                    adjacency_matrix[source_cluster as usize][target_cluster as usize] += edge.weight();
+                }
+            }
+        }
+        
+       
+        
+        
+        return graph_maker.build_graph_from_adjacency_matrix(adjacency_matrix);
+    }
+
+    
     
     pub fn initialize_singleton(&mut self) {
         let mut i = 0;
@@ -55,7 +104,7 @@ impl partition {
     }
 
     pub fn get_number_of_clusters(&self) -> i32 {
-        return self.current_partition.values().cloned().len().try_into().unwrap();
+        return Self::remove_duplicates(self.current_partition.values().cloned().collect()).len().try_into().unwrap();
     }
 
     pub fn get_nodes_in_cluster(&self, cluster: i32) -> Vec<NodeIndex> {
@@ -80,6 +129,9 @@ impl partition {
             m += *graph.edge_weight(edge).unwrap();
         }
         m /= 2.0;
+        if m == 0.0 {
+            return 0.0;
+        }
         let mut potential_community_nodes = self.get_nodes_in_cluster(temp_community);
         let term_1: f32 = community_detection.sum_of_weights_from_node_to_community(node, &potential_community_nodes, graph);
         let term_2: f32 = community_detection.outward_degree_of_node(node, &graph) * community_detection.sum_of_in_going_edges_to_nodes_in_a_community(&potential_community_nodes, &graph);
@@ -151,66 +203,62 @@ impl community_detection {
         let mut partition = partition::new(node_indices.clone());
         partition.initialize_singleton();
         let mut total_increase = 1000.0;
+        let mut net_increase = 0.0;
         while total_increase > 0.1 {
             total_increase = 0.0;
             for node_index in &node_indices {
+                let original_community: i32 = partition.get_node_partition(*node_index).unwrap();
+                partition.make_node_singleton(*node_index);
+                total_increase -= partition.compute_change_in_modularty(*node_index, original_community, &G);
                 total_increase += partition.reasign_node_to_optimal_community(*node_index, &G);
             }
+            net_increase += total_increase;
         }
-        return (partition, total_increase);
+        println!("partition {}", partition);
+        return (partition, net_increase);
+    }
+
+    fn compute_modularity_from_singleton(&self, G: &Graph<i32, f32>) -> f32 {
+        let mut m: f32 = 0.0;
+        for edge in G.edge_indices() {
+            m += *G.edge_weight(edge).unwrap();
+        }
+        let mut node_indices: Vec<NodeIndex> = G.node_indices().collect();
+        let  modularity: f32 = node_indices
+                            .iter()
+                            .map(|node| -1.0* (self.inward_degree_of_node(*node, G) / m)* (self.inward_degree_of_node(*node, G) / m))
+                            .sum();
+        return modularity;
     }
 
     pub fn serial_louvain_algorithm(&self, G: &Graph<i32, f32>) -> (partition, f32) {
-        let mut m = 0.0;
-        let mut node_indices: Vec<NodeIndex> = G.node_indices().collect();
-        let num_nodes = node_indices.len();
-        let mut A : Vec<f32> = vec![0.0; num_nodes];
-        for edge in G.raw_edges() {
-            let source_index = node_indices.iter().position(|&x| x == edge.source()).unwrap();
-            let target_index = node_indices.iter().position(|&x| x == edge.target()).unwrap();
-            if source_index == target_index {
-                A[target_index] = edge.weight;
-            }
-            m += edge.weight;
-        }
-        let mut modularity = 0.0;
-        for i in 0 .. A.len() {
-            let node = node_indices[i];
-            let d_i_out: f32 = G
-                            .edges_directed(node, Direction::Outgoing)
-                            .map(|edge_ref| *edge_ref.weight())
-                            .sum();
-            let d_i_in: f32 = G
-                            .edges_directed(node, Direction::Incoming)
-                            .map(|edge_ref| *edge_ref.weight())
-                            .sum();
-            modularity += (A[i] -(d_i_in* d_i_out)/m)
-        }
-        modularity /= m;
+        let mut modularity = self.compute_modularity_from_singleton(G);
+        
         let (mut partition, mut total_increase) = self.phase_1(&G);
         modularity += total_increase;
+        
+        let mut graph = G.clone(); // Clone the graph to mutate it
         while total_increase > 0.01 {
-            let number_of_clusters = partition.get_number_of_clusters();
-            let mut adjacency_matrix: Vec<Vec<f32>> = vec![vec![0.0; number_of_clusters as usize]; number_of_clusters as usize];
-            for edge in G.raw_edges() {
-                let target_cluster = partition.get_node_partition(edge.target()).unwrap();
-                let source_cluster = partition.get_node_partition(edge.source()).unwrap();
-                adjacency_matrix[source_cluster as usize][target_cluster as usize] += edge.weight;
-            }
-            let collapsed_graph = graph_maker.build_graph_from_adjacency_matrix(adjacency_matrix);
-            (partition, total_increase) = self.phase_1(&collapsed_graph);
+            let new_graph = partition.phase_2(graph.clone()); // Apply phase 2 to obtain a new graph
+            graph = new_graph.clone(); // Update graph to the new graph
+            let (new_partition, new_total_increase) = self.phase_1(&graph); // Apply phase 1 to the updated graph
+            partition = new_partition; // Update partition
+            total_increase = new_total_increase; // Update total increase
             modularity += total_increase;
         }
-        return (partition, modularity);
+    
+        (partition, modularity)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use petgraph::algo::is_isomorphic_matching;
     use crate::run_manager::community_detection::partition;
     use petgraph::graph::{Graph, NodeIndex};
     use crate::run_manager::community_detection::community_detection;
     use std::collections::HashMap;
+    use crate::run_manager::graph_maker::graph_maker;
 
     #[test]
     fn create_singleton_partition_of_graph_test() {
@@ -431,5 +479,228 @@ mod tests {
         let actual_modularity_change_from_moving_node_2_to_cluster_0 = partition.compute_change_in_modularty(node_2, 0, &graph);
         let expected_modularity_change = 0.04903979;
         assert_eq!(expected_modularity_change, actual_modularity_change_from_moving_node_2_to_cluster_0)
+    }
+
+    #[test]
+    fn reasign_node_to_optimal_community_test() {
+        let mut graph = Graph::<i32, f32>::new();
+        let node_1 = graph.add_node(0);
+        let node_2 = graph.add_node(0);
+        let node_3 = graph.add_node(0);
+        let node_4 = graph.add_node(0);
+        let node_5 = graph.add_node(0);
+        let nodes = vec![node_1, node_2, node_3, node_4, node_5];
+        graph.add_edge(node_1, node_2, 1.5);
+        graph.add_edge(node_2, node_1, 1.5);
+        graph.add_edge(node_1, node_3, 1.3333333333333333);
+        graph.add_edge(node_3, node_1, 1.3333333333333333);
+        graph.add_edge(node_1, node_4, 1.25);
+        graph.add_edge(node_4, node_1, 1.25);       
+        graph.add_edge(node_2, node_3, 1.6666666666666665);
+        graph.add_edge(node_3, node_2, 1.6666666666666665);
+        graph.add_edge(node_2, node_4, 1.5);
+        graph.add_edge(node_4, node_2, 1.5);  
+        graph.add_edge(node_3, node_4, 1.75);
+        graph.add_edge(node_4, node_3, 1.75);  
+        let mut partition: partition = partition::new(nodes.clone());
+        partition.initialize_singleton();
+        partition.assign_node_to_cluster(node_1, 0);
+        partition.assign_node_to_cluster(node_2, 0);
+        partition.assign_node_to_cluster(node_3, 1);
+        partition.assign_node_to_cluster(node_4, 2);
+        partition.assign_node_to_cluster(node_5, 3);
+        partition.reasign_node_to_optimal_community(node_3, &graph);
+        assert_eq!(partition.get_node_partition(node_1), Some(0));
+        assert_eq!(partition.get_node_partition(node_2), Some(0));
+        assert_eq!(partition.get_node_partition(node_3), Some(0));
+        assert_eq!(partition.get_node_partition(node_4), Some(2));
+        assert_eq!(partition.get_node_partition(node_5), Some(3));
+    }
+
+    #[test]
+    fn make_node_singleton_test() {
+        let mut graph = Graph::<i32, f32>::new();
+        let node_1 = graph.add_node(0);
+        let node_2 = graph.add_node(0);
+        let node_3 = graph.add_node(0);
+        let node_4 = graph.add_node(0);
+        let node_5 = graph.add_node(0);
+        let nodes = vec![node_1, node_2, node_3, node_4, node_5];
+        graph.add_edge(node_1, node_2, 1.5);
+        graph.add_edge(node_2, node_1, 1.5);
+        graph.add_edge(node_1, node_3, 1.3333333333333333);
+        graph.add_edge(node_3, node_1, 1.3333333333333333);
+        graph.add_edge(node_1, node_4, 1.25);
+        graph.add_edge(node_4, node_1, 1.25);       
+        graph.add_edge(node_2, node_3, 1.6666666666666665);
+        graph.add_edge(node_3, node_2, 1.6666666666666665);
+        graph.add_edge(node_2, node_4, 1.5);
+        graph.add_edge(node_4, node_2, 1.5);  
+        graph.add_edge(node_3, node_4, 1.75);
+        graph.add_edge(node_4, node_3, 1.75);  
+        let mut partition: partition = partition::new(nodes.clone());
+        partition.initialize_singleton();
+        partition.assign_node_to_cluster(node_1, 0);
+        partition.assign_node_to_cluster(node_2, 0);
+        partition.assign_node_to_cluster(node_3, 1);
+        partition.assign_node_to_cluster(node_4, 2);
+        partition.assign_node_to_cluster(node_5, 3);
+        partition.make_node_singleton(node_2);
+        let expected_community_number_for_node_2 = Some(4);
+        let actual_community_number_for_node_2 = partition.get_node_partition(node_2);
+        assert_eq!(actual_community_number_for_node_2,expected_community_number_for_node_2);
+    }
+
+    #[test]
+    fn phase_1_test() {
+        let mut graph = Graph::<i32, f32>::new();
+        let node_1 = graph.add_node(0);
+        let node_2 = graph.add_node(0);
+        let node_3 = graph.add_node(0);
+        graph.add_edge(node_1, node_2, 11.7);
+        graph.add_edge(node_2, node_1, 11.7);
+        graph.add_edge(node_2, node_3, 10.4);
+        graph.add_edge(node_3, node_2, 10.4);
+        let nodes = vec![node_1, node_2, node_3];
+        let mut partition: partition = partition::new(nodes.clone());
+        partition.initialize_singleton();
+        partition.assign_node_to_cluster(node_1, 1);
+        let (mut actual_partition, actual_modularity) = community_detection.phase_1(&graph);
+        let expected_modularity_increase = 0.37543252;
+        assert_eq!(actual_modularity, expected_modularity_increase);
+        let actual_node_1_cluster = actual_partition.get_node_partition(node_1);
+        let actual_node_2_cluster = actual_partition.get_node_partition(node_2);
+        let actual_node_3_cluster = actual_partition.get_node_partition(node_3);
+        let expected_node_1_cluster = Some(1);
+        let expected_node_2_cluster = Some(1);
+        let expected_node_3_cluster = Some(1);
+        assert_eq!(expected_node_1_cluster,actual_node_1_cluster);
+        assert_eq!(expected_node_2_cluster,actual_node_2_cluster);
+        assert_eq!(expected_node_3_cluster,actual_node_3_cluster);
+    }
+
+    #[test]
+    fn compute_modularity_from_singleton_test() {
+        let adjacency_matrix: Vec<Vec<f32>> = vec![
+            vec![0.0, 0.9, 0.4, 0.2, 0.5, 0.0, 0.0],
+            vec![0.9, 0.0, 0.5, 0.1, 0.3, 0.0, 0.0],
+            vec![0.4, 0.5, 0.0, 0.9, 0.3, 0.0, 0.0],
+            vec![0.2, 0.1, 0.9, 0.0, 0.0, 0.0, 0.0],
+            vec![0.5, 0.3, 0.3, 0.0, 0.0, 0.0, 0.0],
+            vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        ];
+        let mut G = graph_maker.build_graph_from_adjacency_matrix(adjacency_matrix);
+        let expected_singleton_modularity = -0.21267104;
+        let actual_singleton_modularity = community_detection.compute_modularity_from_singleton(&G);
+        assert_eq!(expected_singleton_modularity, actual_singleton_modularity);
+    }
+
+    #[test]
+    fn adjust_cluster_numbers_test_1() {
+        let mut graph = Graph::<i32, f32>::new();
+        let node_1 = graph.add_node(0);
+        let node_2 = graph.add_node(0);
+        let node_3 = graph.add_node(0);
+        let node_4 = graph.add_node(0);
+        let node_5 = graph.add_node(0);
+        let nodes = vec![node_1, node_2, node_3, node_4, node_5];
+        let mut partition: partition = partition::new(nodes.clone());
+        partition.initialize_singleton();
+        partition.assign_node_to_cluster(node_1, 0);
+        partition.assign_node_to_cluster(node_2, 1);
+        partition.assign_node_to_cluster(node_3, 12);
+        partition.assign_node_to_cluster(node_4, 6);
+        partition.assign_node_to_cluster(node_5, 100);
+        partition.adjust_cluster_numbers();
+        let expected_community_for_node_1 = Some(0);
+        let expected_community_for_node_2 = Some(1);
+        let expected_community_for_node_3 = Some(3);
+        let expected_community_for_node_4 = Some(2);
+        let expected_community_for_node_5 = Some(4);
+        let actual_community_for_node_1 = partition.get_node_partition(node_1);
+        let actual_community_for_node_2 = partition.get_node_partition(node_2);
+        let actual_community_for_node_3 = partition.get_node_partition(node_3);
+        let actual_community_for_node_4 = partition.get_node_partition(node_4);
+        let actual_community_for_node_5 = partition.get_node_partition(node_5);
+        assert_eq!(actual_community_for_node_1,expected_community_for_node_1);
+        assert_eq!(actual_community_for_node_2,expected_community_for_node_2);
+        assert_eq!(actual_community_for_node_3,expected_community_for_node_3);
+        assert_eq!(actual_community_for_node_4,expected_community_for_node_4);
+        assert_eq!(actual_community_for_node_5,expected_community_for_node_5);
+    }
+
+    #[test]
+    fn adjust_cluster_numbers_test_2() {
+        let mut graph = Graph::<i32, f32>::new();
+        let node_1 = graph.add_node(0);
+        let node_2 = graph.add_node(0);
+        let node_3 = graph.add_node(0);
+        let node_4 = graph.add_node(0);
+        let node_5 = graph.add_node(0);
+        let nodes = vec![node_1, node_2, node_3, node_4, node_5];
+        let mut partition: partition = partition::new(nodes.clone());
+        partition.initialize_singleton();
+        partition.assign_node_to_cluster(node_1, 0);
+        partition.assign_node_to_cluster(node_2, 1);
+        partition.assign_node_to_cluster(node_3, 12);
+        partition.assign_node_to_cluster(node_4, 12);
+        partition.assign_node_to_cluster(node_5, 6);
+        partition.adjust_cluster_numbers();
+        let expected_community_for_node_1 = Some(0);
+        let expected_community_for_node_2 = Some(1);
+        let expected_community_for_node_3 = Some(3);
+        let expected_community_for_node_4 = Some(3);
+        let expected_community_for_node_5 = Some(2);
+        let actual_community_for_node_1 = partition.get_node_partition(node_1);
+        let actual_community_for_node_2 = partition.get_node_partition(node_2);
+        let actual_community_for_node_3 = partition.get_node_partition(node_3);
+        let actual_community_for_node_4 = partition.get_node_partition(node_4);
+        let actual_community_for_node_5 = partition.get_node_partition(node_5);
+        assert_eq!(actual_community_for_node_1,expected_community_for_node_1);
+        assert_eq!(actual_community_for_node_2,expected_community_for_node_2);
+        assert_eq!(actual_community_for_node_3,expected_community_for_node_3);
+        assert_eq!(actual_community_for_node_4,expected_community_for_node_4);
+        assert_eq!(actual_community_for_node_5,expected_community_for_node_5);
+    }
+
+    #[test]
+    fn phase_2_test() {
+        let mut graph = Graph::<i32, f32>::new();
+        let node_1 = graph.add_node(0);
+        let node_2 = graph.add_node(0);
+        let node_3 = graph.add_node(0);
+        let node_4 = graph.add_node(0);
+        let node_5 = graph.add_node(0);
+        let nodes = vec![node_1, node_2, node_3, node_4, node_5];
+        let mut partition: partition = partition::new(nodes.clone());
+        partition.initialize_singleton();
+        graph.add_edge(node_1, node_2, 0.7);
+        graph.add_edge(node_2, node_1, 0.7);
+        graph.add_edge(node_3, node_2, 1.5);
+        graph.add_edge(node_2, node_3, 1.5);
+        graph.add_edge(node_4, node_2, 1.3);
+        graph.add_edge(node_2, node_4, 1.3);
+        graph.add_edge(node_4, node_5, 0.4);
+        graph.add_edge(node_5, node_4, 0.4);
+        partition.assign_node_to_cluster(node_1, 0);
+        partition.assign_node_to_cluster(node_2, 1);
+        partition.assign_node_to_cluster(node_3, 0);
+        partition.assign_node_to_cluster(node_4, 2);
+        partition.assign_node_to_cluster(node_5, 2);
+        let mut expected_graph = Graph::<i32, f32>::new();
+        let extected_node_1 =  expected_graph.add_node(0);
+        let extected_node_2 =  expected_graph.add_node(0);
+        let extected_node_3 =  expected_graph.add_node(0);
+        expected_graph.add_edge(extected_node_1, extected_node_2, 2.2);
+        expected_graph.add_edge(extected_node_2, extected_node_1, 2.2);
+        expected_graph.add_edge(extected_node_3, extected_node_2, 1.3);
+        expected_graph.add_edge(extected_node_2, extected_node_3, 1.3);
+        let mut actual_graph = partition.phase_2(graph);
+        let node_matcher = |_: &_, _: &_| true;
+        let edge_matcher = |edge1: &f32, edge2: &f32| *edge1 == *edge2;
+        assert!(is_isomorphic_matching(&expected_graph, &actual_graph, node_matcher, edge_matcher));
+
+
     }
 }
